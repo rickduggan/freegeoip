@@ -1,123 +1,194 @@
-# freegeoip.net
+# freegeoip
 
-freegeoip.net is a public web service for searching
-[geolocation](http://en.wikipedia.org/wiki/Geolocation) of IP addresses.
-This is the source code of freegeoip.net's web server and script for building
-the IP database.
+This is the source code of the freegeoip software. It contains both
+the web server that empowers freegeoip.net, and a package for the
+[Go](http://golang.org) programming language that enables any web server
+to support IP geolocation with a simple and clean API.
 
-## Overview
+See http://en.wikipedia.org/wiki/Geolocation for details about geolocation.
 
-freegeoip.net is the result of a web server research project that started in
-2009 hosted at Google's [App Engine](http://en.wikipedia.org/wiki/Geolocation),
-using the Python API.
-A year later it moved to its own server infrastructure built on the
-[Cyclone](http://cyclone.io) web framework, backed by
-[Twisted](http://twistedmatrix.com) and [PyPy](http://pypy.org).
+Developers looking for the Go API can skip to the **Package freegeiop**
+section below.
 
-The current version is written in Go as the experiments progress with
-[go-web](https://github.com/fiorix/go-web) and
-[go-redis](https://github.com/fiorix/go-redis).
+## Running
 
-### Prerequisites
+This section is for people who desire to run the freegeoip web server
+on their own infrastructure. The easiest and most generic way of doing
+this is by using Docker.
 
-List of prerequisites for building and running the server:
+See the **Server Options** below for more information on configuring
+the server.
 
-- Go compiler - for ``freegeoip.go``
-- libsqlite3-dev, gcc or llvm - for dependency ``go-sqlite3``
-- Python - for the ``updatedb`` script
-- Redis - for API usage quotas
-- The IP database
+### Docker
 
-Proceed to building the IP database and then compile and run the server.
+Install Docker on Ubuntu 14.04 LTS:
 
-### Building the IP database
+```bash
+sudo apt-get install docker.io
+```
 
-The IP database is composed of multiple files from multiple sources. It's a
-combination of IP subnets, country codes, city names, etc.
+Install Docker on CentOS 7:
 
-There's a helper script under the ``db`` directory that automates the process
-of building the database, and can be used regularly to update it as well.
+```bash
+yum install docker
+```
 
-It's a Python script called ``updatedb`` that creates ``ipdb.sqlite``:
+Run the freegeoip web server:
 
-	$ cd db
-	$ ./updatedb
-	... will download files and process them to create ipdb.sqlite
-	$ file ipdb.sqlite
-	ipdb.sqlite: SQLite 3.x database
+```bash
+docker run --net=host --restart=always -d fiorix/freegeoip
+```
 
-This service includes GeoLite data created by MaxMind, available from
-maxmind.com.
+Test:
 
-### Build and run
+```bash
+curl localhost:8080/json/1.2.3.4
+```
 
-Make sure the Go compiler is installed and $GOPATH is set. Install
-dependencies first:
+See the **API** section below for details.
 
-	go get github.com/fiorix/go-redis/redis
-	go get github.com/fiorix/go-web/httpxtra
-	go get github.com/mattn/go-sqlite3
+### Other Linux, OS X, or FreeBSD
 
-Use either ``go run freegeoip.go`` or ``go build; ./freegeoip`` to compile and
-run the server, then point the browser to http://localhost:8080.
+There are pre-compiled binaries available for you:
 
-Server needs ``freegeoip.conf`` to be in the current directory but an alternate
-config can be specified using the ``-config`` command line option.
-If the database is not accessible (e.g. file does not exist, permissions) or
-redis-server is unreachable, all queries will result in HTTP 503
-(Service Unavailable).
+https://github.com/fiorix/freegeoip/releases
 
-We recommend [supervisor](http://supervisord.org) for running the server in
-production. On Ubuntu, install ``apt-get install supervisor`` and drop the
-following config in ``/etc/supervisor/conf.d/freegeoip.conf``:
+You'll have to set up your own init scripts for your system.
 
-	[program:freegeoip]
-	user=www-data
-	redirect_stderr=true
-	directory=/opt/freegeoip
-	command=/opt/freegeoip/freegeoip
-	stdout_logfile=/var/log/freegeoip.log
-	stdout_logfile_maxbytes=50MB
-	stdout_logfile_backups=20
+### Server Options
 
-If the server is proxied by Nginx or another HTTP load balancer, edit the
-configuration file and set ``xheaders="true"`` and it'll use X-Real-IP or
-X-Forwarded-For HTTP headers when available, as the client IP.
+You can configure the freegeoip web server to listen on a port
+other than the default 8080, and also listen on HTTPS by passing
+an ip:port and X.509 certificate and key files.
 
-For listening on low ports as non-root user (e.g. www-data) on linux, set
-file capabilities at least once before running it:
+These and many other options are described in the help. If you're
+using Docker, you can see them like this:
 
-	/sbin/setcap 'cap_net_bind_service=+ep' /opt/freegeoip/freegeoip
+```bash
+docker run --rm -it fiorix/freegeoip --help
+```
 
-### Usage
+By default, the Docker image of freegeoip does not provide the
+web page from freegeiop.net, it only provides the API.
 
-Point the browser to http://localhost:8080 and search for IPs or hostnames.
+If you want to serve that page, you can pass the `-public=/var/www`
+parameter in the command line. You can also tell Docker to mount that
+directory as a volume on the host machine and have it serve your own
+page, using Docker's `-v` parameter.
 
-Use curl from the command line to query the API:
+If the freegeoip web server is running behind a proxy or load
+balancer, you have to run it passing the `-use-x-forwarded-for`
+parameter and provide the `X-Forwarded-For` HTTP header so the web
+server is capable of using the source IP address of the connection
+to perform geolocation lookups when an IP is not provided to
+the API, e.g. `/json/` vs `/json/1.2.3.4`.
 
-	$ curl -v http://localhost:8080/{format}/{ip_or_hostname}
+## Database
 
-It supports csv, json and xml as the output format. JSON supports callbacks
-with the ``callback`` query argument. The client (self) IP is used if
-**ip_or_hostname** is omitted in the query.
+The current implementation uses the free [GeoLite2](http://dev.maxmind.com/geoip/geoip2/geolite2/)
+database from MaxMind.
 
-Examples:
+In the past we had databases from other providers, and at some point
+even our own database comprised of different sources. This means it
+might change in the future.
 
-	$ curl -v http://localhost:8080/csv/
-	$ curl -v http://localhost:8080/xml/
-	$ curl -v http://localhost:8080/xml/freegeoip.net
-	$ curl -v http://localhost:8080/json/github.com?callback=foobar
+If you have purchased the commercial database from MaxMind, you can
+point the freegeoip web server or Go API to the URL of it, or local
+file, and the server will use it.
 
-If the server is listening on unix sockets, use ``nc`` to test:
+In case of files on disk, you can replace with a new version and the
+freegeoip software will load it automatically. URLs are frequently
+checked in background, and if a new version of the database is
+available it is loaded automatically also.
 
-	echo -ne 'GET /json/my-domain.abc HTTP/1.0\r\n\r\n' | nc -U /tmp/freegeoip.sock
+## API
 
-### Credits
+The freegeoip API is served by endpoints that encode the response
+in different formats.
 
-Thanks to (in no particular order):
+Example:
 
-- [Gleicon](https://github.com/gleicon) for all the drama.
-- Google for the map, Go, and AngularJS.
-- Twitter for Bootstrap.
-- MaxMind for the current database.
-- ipinfodb.com for both the IP and timezones database back in 2010 and 2011.
+```bash
+curl freegeoip.net/json/
+```
+
+Returns the geolocation information of your own IP address, the source
+IP address of the connection.
+
+You can pass a different IP or hostname:
+
+```bash
+curl freegeoip.net/json/github.com
+```
+
+To lookup the geolocation of `github.com` after resolving its IP address,
+which might be IPv4 or IPv6.
+
+Responses can also be encoded as JSONP, by adding the `callback` parameter:
+
+```bash
+curl freegeoip.net/json/?callback=foobar
+```
+
+Same semantics are available for the `/xml/{ip}` and `/csv/{ip}` endpoints
+except the callback parameter.
+
+## Metrics and profiling
+
+The freegeoip web server can provide metrics about its usage, and also
+supports runtime profiling.
+
+Both are disabled by default, but can be enabled by passing the
+`-internal-server=:8081` parameter in the command line. Metrics are
+generated for [Prometheus](http://prometheus.io) and can be queried
+at `/metrics` even with curl.
+
+HTTP pprof is available at `/debug/pprof` and the examples from
+the [pprof](https://golang.org/pkg/net/http/pprof/) package work.
+
+## Package freegeoip
+
+The freegeoip package for the Go programming language provides two APIs:
+
+- A database API that requires zero maintenance of the IP database;
+- A geolocation `http.Handler` that can be used/served by any http server.
+
+tl;dr if all you want is code then see the `example_test.go` file.
+
+Otherwise check out the godoc reference.
+
+[![GoDoc](https://godoc.org/github.com/fiorix/freegeoip?status.svg)](https://godoc.org/github.com/fiorix/freegeoip)
+[![Build Status](https://secure.travis-ci.org/fiorix/freegeoip.png)](http://travis-ci.org/fiorix/freegeoip)
+
+### Features
+
+- Zero maintenance
+
+The DB object alone can download an IP database file from the internet and
+service lookups to your program right away. It will auto-update the file in
+background and always magically work.
+
+- DevOps friendly
+
+If you do care about the database and have the commercial version of the
+MaxMind database, you can update the database file with your program running
+and the DB object will load it in background. You can focus on your stuff.
+
+- Extensible
+
+Besides the database part, the package provides an `http.Handler` object
+that you can add to your HTTP server to service IP geolocation lookups with
+the same simplistic API of freegeoip.net. There's also an interface for
+crafting your own HTTP responses encoded in any format.
+
+### Install
+
+Download the package:
+
+	go get -d github.com/fiorix/freegeoip
+
+Install the web server:
+
+	go install github.com/fiorix/freegeoip/cmd/freegeoip
+
+Test coverage is quite good and tests may help you find the stuff you need.
