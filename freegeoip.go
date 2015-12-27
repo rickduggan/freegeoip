@@ -80,7 +80,17 @@ func (f *Handler) queryIP(r *http.Request) net.IP {
 	if len(ip) == 0 {
 		return nil
 	}
-	return ip[rand.Intn(len(ip))]
+	else if len(ip) == 1 {
+		return ip[0]
+	}
+	else {
+		for _,element := range ip {
+			// IPv4 regexp
+			if match('^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$',element) 
+				return element;
+		}
+		return ip[rand.Intn(len(ip))]
+	}
 }
 
 func (f *Handler) remoteAddr(r *http.Request) net.IP {
